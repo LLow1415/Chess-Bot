@@ -54,8 +54,8 @@ def evaluate(board: chess.Board) -> float:
 
     return score
 
-
 # ── Minimax with Alpha-Beta Pruning ───────────────────────────────────────────
+# Simulates other team's worst-case response to a move, then get's your response to this worst-case move, continues until depth = 0, and returns best score by going back down the tree, eventually returning best move to function that called it
 def minimax(board: chess.Board, depth: int,
             alpha: float, beta: float,
             maximizing: bool) -> float:
@@ -67,10 +67,11 @@ def minimax(board: chess.Board, depth: int,
     # Alpha = -inf
     # Beta = inf
 
+    # When depth equals 0, the board is evaluated, and the score is returned, which sets the value of best = evaluate(board) when depth equals 1
     if depth == 0 or board.is_game_over():
         return evaluate(board)
 
-    # If Black, Start Here
+    # If Black, Start Here to see how white respons to move
     if maximizing:
         best = float('-inf') # Best Score = -inf
         for move in board.legal_moves: # Check every legal move possible
@@ -81,7 +82,7 @@ def minimax(board: chess.Board, depth: int,
             if beta <= alpha:
                 break       # Beta cutoff — opponent won't allow this path
         return best
-    # If White, Start Here
+    # If White, Start Here to see how white respons to move
     else:
         best = float('inf') # Best Score = inf
         for move in board.legal_moves:
