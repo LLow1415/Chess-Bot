@@ -9,11 +9,11 @@ import chess
 
 # ── Piece values (centipawns) ─────────────────────────────────────────────────
 PIECE_VALUES = {
-    chess.PAWN:   1,
-    chess.KNIGHT: 1,
-    chess.BISHOP: 1,
-    chess.ROOK:   1,
-    chess.QUEEN:  1,
+    chess.PAWN:   2,
+    chess.KNIGHT: 6,
+    chess.BISHOP: 5,
+    chess.ROOK:   7,
+    chess.QUEEN:  8,
     chess.KING:   1,
 }
 
@@ -31,6 +31,10 @@ def evaluate(board: chess.Board) -> float:
         return -99999 if board.turn == chess.WHITE else 99999
     if board.is_stalemate() or board.is_insufficient_material() or board.is_repetition(3) or board.is_fifty_moves():
         return 0
+    if board.is_game_over():
+        outcome = board.outcome()
+        if outcome.winner is None:
+            return 0  # draw (includes 5-fold repetition, 75-move rule, etc.)
 
     # ── Example Heuristic ─────────────────────────────────────────────────────────
     # The evaluation function counts the number of pieces White has minus the number
@@ -51,6 +55,51 @@ def evaluate(board: chess.Board) -> float:
         score -= len(board.pieces(piece_type, chess.BLACK)) * value # 5 black pieces, score = 5
 
     # Your code goes here
+
+    # Reward Pawn Movement
+    white_pawn = board.pieces(chess.PAWN, chess.WHITE)
+    black_pawn = board.pieces(chess.PAWN, chess.BLACK)
+    for pawn in white_pawn:
+        if chess.square_rank(pawn) == 2:
+            score += 1
+        elif chess.square_rank(pawn)>2:
+                score += 2
+                if chess.square_rank(pawn)>3:
+                    score += 1
+                    if chess.square_rank(pawn)>4:
+                        score += 1
+                        if chess.square_rank(pawn)>5:
+                            score += 1
+                            if chess.square_rank(pawn)>6:
+                                score += 4
+    for pawn in black_pawn:
+        if chess.square_rank(pawn) == 5:
+            score -= 1
+        elif chess.square_rank(pawn)<5:
+                score -= 2
+                if chess.square_rank(pawn)<4:
+                    score -= 1
+                    if chess.square_rank(pawn)<3:
+                        score -= 1
+                        if chess.square_rank(pawn)<2:
+                            score -= 1
+                            if chess.square_rank(pawn)<1:
+                                score -= 4
+
+    # Reward Check
+    if board.is_check():
+         return -8 if board.turn == chess.WHITE else 8
+
+    last_move = board.peek()
+    move_one = last_move.from_square
+    move_two = last_move.to_square
+
+    if chess.square_distance(move_one,move_two) > 1:
+        return 3 if board.turn == chess.WHITE else -3
+    if chess.square_manhattan_distance(move_one,move_two) > 1:
+        return 3 if board.turn == chess.WHITE else -3
+    if chess.square_knight_distance(move_one,move_two) > 2:
+        return 3 if board.turn == chess.WHITE else -3
 
     return score
 
@@ -127,4 +176,5 @@ if __name__ == '__main__':
     move = get_next_move(b, chess.WHITE, depth=3)
     print(f"[team_arch] Opening move: {b.san(move)}")
     b.push(move)
-    print(b)
+    moveOne = b.peek()
+    print(moveOne)
