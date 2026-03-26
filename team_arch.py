@@ -26,6 +26,9 @@ def evaluate(board: chess.Board) -> float:
     Score > 0  =>  White is better.
     Score < 0  =>  Black is better.
     """
+    # Get last move used, useful for many different heuristics
+    last_move = board.peek()
+
     if board.is_checkmate():
         # The side to move is in checkmate — they lose
         return -99999 if board.turn == chess.WHITE else 99999
@@ -54,52 +57,106 @@ def evaluate(board: chess.Board) -> float:
         score += len(board.pieces(piece_type, chess.WHITE)) * value # 10 white pieces, score = 10
         score -= len(board.pieces(piece_type, chess.BLACK)) * value # 5 black pieces, score = 5
 
-    # Your code goes here
+    # Reward Speical Moves 
+    if board.is_castling(last_move):
+        if board.turn == chess.WHITE:
+            score -= 3 
+        else:
+            score += 3
+    if board.is_en_passant(last_move):
+        if board.turn == chess.WHITE:
+            score -= 3 
+        else:
+            score += 3
+
+
+    # Protect King
+    # Returning list of kings, need to get index of just 1
+    white_king = board.king(chess.WHITE)
+    black_king = board.king(chess.BLACK)
+    if board.has_castling_rights(chess.WHITE):
+        score += 3
+    if board.has_castling_rights(chess.BLACK):
+        score -= 3
+    # White King Area, Rewards Protection, Penalises being Pinned
+    if board.is_pinned(chess.WHITE, white_king-1):
+        score -= 2
+    if board.is_pinned(chess.WHITE, white_king+1):
+        score -= 2
+    if chess.square_rank(white_king)<7:
+        for i in range(3):
+            if board.piece_type_at(white_king+7+i) == chess.WHITE and chess.square_file(board.piece_type_at(white_king+7+i)) > 0 and chess.square_file(board.piece_type_at(white_king+7+i) < 8):
+                score += 1
+            if board.is_pinned(chess.WHITE, white_king+7+i):
+                score -= 2      
+    if chess.square_rank(white_king)>0:
+        for i in range(3):
+            if board.piece_type_at(white_king-7-i) == chess.WHITE and chess.square_file(board.piece_type_at(white_king-7-i)) > 0 and chess.square_file(board.piece_type_at(white_king-7-i) < 8):
+                score += 1
+                if board.is_pinned(chess.WHITE, white_king+7+i):
+                    score -= 2  
+    # Black King Area
+    if board.is_pinned(chess.BLACK, black_king-1):
+        score += 1
+    if board.is_pinned(chess.BLACK, black_king+1):
+        score += 1
+    if chess.square_rank(black_king)<7:
+        for i in range(3):
+            if board.piece_type_at(black_king+7+i) == chess.BLACK and chess.square_file(board.piece_type_at(black_king+7+i)) > 0 and chess.square_file(board.piece_type_at(black_king+7+i) < 8):
+                score -= 1
+                if board.is_pinned(chess.WHITE, white_king+7+i):
+                    score -= 2  
+    if chess.square_rank(black_king)>0:
+        for i in range(3):
+            if board.piece_type_at(black_king-7-i) == chess.BLACK and chess.square_file(board.piece_type_at(black_king-7-i)) > 0 and chess.square_file(board.piece_type_at(black_king-7-i) < 8):
+                score -= 1
+                if board.is_pinned(chess.BLACK, black_king+7+i):
+                    score += 2  
+
+        
+    
 
     # Reward Pawn Movement
     white_pawn = board.pieces(chess.PAWN, chess.WHITE)
     black_pawn = board.pieces(chess.PAWN, chess.BLACK)
-    for pawn in white_pawn:
-        if chess.square_rank(pawn) == 2:
-            score += 1
-        elif chess.square_rank(pawn)>2:
-                score += 2
-                if chess.square_rank(pawn)>3:
+    if len(board.move_stack) >= 2:
+        if board.turn == chess.BLACK:
+            for pawn in white_pawn:
+                moved_piece = board.piece_at(last_move.to_square)
+                if moved_piece == pawn:
                     score += 1
-                    if chess.square_rank(pawn)>4:
-                        score += 1
-                        if chess.square_rank(pawn)>5:
-                            score += 1
-                            if chess.square_rank(pawn)>6:
-                                score += 4
-    for pawn in black_pawn:
-        if chess.square_rank(pawn) == 5:
-            score -= 1
-        elif chess.square_rank(pawn)<5:
-                score -= 2
-                if chess.square_rank(pawn)<4:
+        else:
+            for pawn in black_pawn:
+                moved_piece = board.piece_at(last_move.to_square)
+                if moved_piece == pawn:
                     score -= 1
-                    if chess.square_rank(pawn)<3:
-                        score -= 1
-                        if chess.square_rank(pawn)<2:
-                            score -= 1
-                            if chess.square_rank(pawn)<1:
-                                score -= 4
 
-    # Reward Check
+    # Reward Checks
     if board.is_check():
-         return -8 if board.turn == chess.WHITE else 8
+        if board.turn == chess.WHITE:
+            score -= 4
+        else:
+            score += 4
 
-    last_move = board.peek()
+    # Reward Longer Moves
     move_one = last_move.from_square
     move_two = last_move.to_square
 
-    if chess.square_distance(move_one,move_two) > 1:
-        return 3 if board.turn == chess.WHITE else -3
-    if chess.square_manhattan_distance(move_one,move_two) > 1:
-        return 3 if board.turn == chess.WHITE else -3
-    if chess.square_knight_distance(move_one,move_two) > 2:
-        return 3 if board.turn == chess.WHITE else -3
+    if chess.square_distance(move_one,move_two) > 3:
+        if board.turn == chess.WHITE:
+            score -= 4 
+        else:
+            score += 4
+    if chess.square_manhattan_distance(move_one,move_two) > 3:
+        if board.turn == chess.WHITE:
+            score -= 4 
+        else:
+            score += 4
+    if chess.square_knight_distance(move_one,move_two) > 1:
+        if board.turn == chess.WHITE:
+            score -= 2 
+        else:
+            score += 2
 
     return score
 

@@ -26,7 +26,7 @@ import sys
 import os
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-DEPTH       = 2          # search depth — keep at 2 for fast moves; raise for stronger play
+DEPTH       = 3          # search depth — keep at 2 for fast moves; raise for stronger play
 MOVE_DELAY  = 1.2        # seconds between moves just for visualising
 SQUARE_SIZE = 72         # pixels per square
 BOARD_SIZE  = SQUARE_SIZE * 8
@@ -61,7 +61,9 @@ PIECE_UNICODE = {
     (chess.PAWN,   chess.BLACK): "♟",
 }
 
-
+x = 0.0
+player_move = ""
+moved = True
 # ─────────────────────────────────────────────────────────────────────────────
 class ChessGUI:
     def __init__(self, root: tk.Tk, bot_white, bot_black,
@@ -98,7 +100,7 @@ class ChessGUI:
         tk.Label(file_bar_top, text="  ", bg=BG, width=2).pack(side=tk.LEFT)
         for f in "abcdefgh":
             tk.Label(file_bar_top, text=f, bg=BG, fg="#888888",
-                     width=SQUARE_SIZE // 10, font=("Arial", 10)).pack(side=tk.LEFT, padx=SQUARE_SIZE//2 - 8)
+                     width=SQUARE_SIZE // 24, font=("Arial", 10)).pack(side=tk.LEFT, padx=SQUARE_SIZE//2 - 8)
 
         inner = tk.Frame(board_frame, bg=BG)
         inner.pack()
@@ -108,7 +110,7 @@ class ChessGUI:
         rank_frame.pack(side=tk.LEFT)
         for r in range(8, 0, -1):
             tk.Label(rank_frame, text=str(r), bg=BG, fg="#888888",
-                     font=("Arial", 10), height=SQUARE_SIZE // 16).pack(pady=SQUARE_SIZE // 2 - 8)
+                     font=("Arial", 10), height=SQUARE_SIZE // 38).pack(pady=SQUARE_SIZE // 2 - 8)
 
         # Canvas
         self.canvas = tk.Canvas(inner,
@@ -170,6 +172,7 @@ class ChessGUI:
         self.log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.log_text.yview)
 
+
     # ── Drawing ───────────────────────────────────────────────────────────────
     def _draw_board(self):
         self.canvas.delete("all")
@@ -195,9 +198,10 @@ class ChessGUI:
                 else:
                     col = LIGHT_SQ
 
-                self.canvas.create_rectangle(x0, y0, x1, y1, fill=col, outline="")
+                square_id = self.canvas.create_rectangle(
+                x0, y0, x1, y1, fill=col, outline="", tags=("square", f"sq{sq}")
+                )
 
-                # Piece
                 piece = self.board.piece_at(sq)
                 if piece:
                     symbol = PIECE_UNICODE[(piece.piece_type, piece.color)]
@@ -206,9 +210,16 @@ class ChessGUI:
                     cx, cy = x0 + SQUARE_SIZE // 2, y0 + SQUARE_SIZE // 2
                     if piece.color == chess.WHITE:
                         self.canvas.create_text(cx + 1, cy + 1, text=symbol,
-                                                font=piece_font, fill="#555555")
+                                                font=piece_font, fill="#555555", state="disabled")
                     self.canvas.create_text(cx, cy, text=symbol,
-                                            font=piece_font, fill=fg)
+                                            font=piece_font, fill=fg, state="disabled")
+                
+                self.canvas.tag_bind(square_id, "<Button-1>", lambda e, s=sq: self.handle_click(s))
+
+
+
+                
+                    
 
     # ── Move log helper ───────────────────────────────────────────────────────
     def _append_log(self, move_num: int, white_san: str, black_san: str = ""):
@@ -243,6 +254,9 @@ class ChessGUI:
           4. Wait MOVE_DELAY_MS       (user sees the new position for the full delay)
           5. Schedule the next call
         """
+        global x
+        global player_move
+        
         if self.board.is_game_over() or not self.running:
             self._show_result()
             return
@@ -259,56 +273,106 @@ class ChessGUI:
         self.root.update_idletasks()   # flush the status label to screen NOW
 
         # ── Ask bot for move ──────────────────────────────────────────────────
-        move = bot.get_next_move(self.board, current_color, DEPTH)
+        if x%2 == 0:
+            move = bot.get_next_move(self.board, current_color, DEPTH)
+            x += 1
+            # ── Record SAN before pushing ─────────────────────────────────────────
+            san = self.board.san(move)
+            if current_color == chess.WHITE:
+                self.white_san_pending = san
+            else:
+                self._append_log(self.move_number, self.white_san_pending, san)
+                self.white_san_pending = ""
+                self.move_number += 1
 
-        if move is None or move not in self.board.legal_moves:
-            result_text = (
-                f"{self.name_black} WINS — illegal move by {self.name_white}"
-                if current_color == chess.WHITE
-                else f"{self.name_white} WINS — illegal move by {self.name_black}"
+            # ── Update board state ────────────────────────────────────────────────
+            self.last_move = move
+            self.board.push(move)
+
+            # ── Eval ──────────────────────────────────────────────────────────────
+            try:
+                eval_score = self.bot_white.evaluate(self.board)
+                eval_str   = f"Eval: {eval_score:+.0f}"
+            except Exception:
+                eval_str = "Eval: —"
+
+            self.move_count_var.set(
+                f"Move: {self.board.fullmove_number}  |  "
+                f"Ply: {len(self.board.move_stack)}"
             )
-            self.status_var.set(result_text)
-            return
+            self.eval_var.set(eval_str)
 
-        # ── Record SAN before pushing ─────────────────────────────────────────
-        san = self.board.san(move)
-        if current_color == chess.WHITE:
-            self.white_san_pending = san
+            # ── Draw the new position — this paints to screen before the delay ────
+            self._draw_board()
+            self.root.update_idletasks()   # force tkinter to render the frame NOW
+
+            # ── Check again after the push ────────────────────────────────────────
+            if self.board.is_game_over():
+                self._show_result()
+                return
+
+            # ── Schedule the next move after the full visible delay ───────────────
+            # root.after() fires only AFTER the current frame is rendered, so the
+            # user sees the board for exactly MOVE_DELAY_MS milliseconds.
+            self.root.after(int(MOVE_DELAY * 1000), self._think_and_move)
+
+    def handle_click(self, square):
+        global player_move
+        global x
+        not_duplicate = True
+        if len(player_move) == 4 and x%2 != 0:
+            if player_move[:2] == player_move[2:]:
+                player_move = ""
+                not_duplicate = False
+            if not_duplicate:
+                current_color = self.board.turn
+                move = chess.Move.from_uci(player_move)
+                player_move = ""
+
+                if move in self.board.legal_moves:
+                    san = self.board.san(move)
+                    if current_color == chess.WHITE:
+                        self.white_san_pending = san
+                    else:
+                        self._append_log(self.move_number, self.white_san_pending, san)
+                        self.white_san_pending = ""
+                        self.move_number += 1
+
+                    self.board.push(move)
+                    self.last_move = move
+
+                    try:
+                        eval_score = self.bot_white.evaluate(self.board)
+                        eval_str   = f"Eval: {eval_score:+.0f}"
+                    except Exception:
+                        eval_str = "Eval: —"
+
+                    self.move_count_var.set(
+                        f"Move: {self.board.fullmove_number}  |  "
+                        f"Ply: {len(self.board.move_stack)}"
+                    )
+                    self.eval_var.set(eval_str)
+
+                    # ── Draw the new position — this paints to screen before the delay ────
+                    self._draw_board()
+                    self.root.update_idletasks()   # force tkinter to render the frame NOW
+
+                    # ── Check again after the push ────────────────────────────────────────
+                    if self.board.is_game_over():
+                        self._show_result()
+                        return
+
+                    # ── Schedule the next move after the full visible delay ───────────────
+                    # root.after() fires only AFTER the current frame is rendered, so the
+                    # user sees the board for exactly MOVE_DELAY_MS milliseconds.
+                    self.root.after(int(MOVE_DELAY * 1000), self._think_and_move)
+                    x += 1
         else:
-            self._append_log(self.move_number, self.white_san_pending, san)
-            self.white_san_pending = ""
-            self.move_number += 1
+            player_move += chess.square_name(square)
+            print(player_move)
 
-        # ── Update board state ────────────────────────────────────────────────
-        self.last_move = move
-        self.board.push(move)
-
-        # ── Eval ──────────────────────────────────────────────────────────────
-        try:
-            eval_score = self.bot_white.evaluate(self.board)
-            eval_str   = f"Eval: {eval_score:+.0f}"
-        except Exception:
-            eval_str = "Eval: —"
-
-        self.move_count_var.set(
-            f"Move: {self.board.fullmove_number}  |  "
-            f"Ply: {len(self.board.move_stack)}"
-        )
-        self.eval_var.set(eval_str)
-
-        # ── Draw the new position — this paints to screen before the delay ────
-        self._draw_board()
-        self.root.update_idletasks()   # force tkinter to render the frame NOW
-
-        # ── Check again after the push ────────────────────────────────────────
-        if self.board.is_game_over():
-            self._show_result()
-            return
-
-        # ── Schedule the next move after the full visible delay ───────────────
-        # root.after() fires only AFTER the current frame is rendered, so the
-        # user sees the board for exactly MOVE_DELAY_MS milliseconds.
-        self.root.after(int(MOVE_DELAY * 1000), self._think_and_move)
+        
+        
 
     def _show_result(self):
         if self.white_san_pending:
